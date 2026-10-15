@@ -4,12 +4,12 @@ version = 4
 
 [[package]]
 name = "ps2-float"
-version = "0.2.0"
-source = "git+https://github.com/FIZL0/ps2-float?tag=v0.2.0#817751d2d1efadbec4fad9f4eda6fead93115360"
+version = "0.3.0"
+source = "git+https://github.com/FIZL0/ps2-float?tag=v0.3.0#647eefb110ef56a0e4f5faaef0970ae5bcfa45f0"
 
 [[package]]
 name = "ps2-oracle"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ps2-float",
 ]

@@ -1,7 +1,7 @@
 [package]
 name = "ps2-oracle"
 description = "Run one of a PS2 game's own functions on chosen inputs, with no emulator: an R5900 interpreter for proving ports"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/FIZL0/ps2-oracle"
@@ -11,7 +11,7 @@ publish = false
 # interprets R5900 machine code — a few hundred lines of integer work, none of it worth a supply chain.
 # Floats go through ps2-float so the oracle and the port under test agree by construction.
 [dependencies]
-ps2-float = { git = "https://github.com/FIZL0/ps2-float", tag = "v0.2.0" }
+ps2-float = { git = "https://github.com/FIZL0/ps2-float", tag = "v0.3.0" }
 
 # An oracle run is tens of thousands of interpreted calls: minutes in a debug build, seconds here.
 [profile.test]
