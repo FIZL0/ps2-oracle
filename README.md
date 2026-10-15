@@ -28,7 +28,7 @@ assert_eq!(ee.f0().to_bits(), my_port(1.5, 2.0).to_bits());
 
 ```toml
 [dev-dependencies]
-ps2-oracle = { git = "https://github.com/FIZL0/ps2-oracle", tag = "v0.1.0" }
+ps2-oracle = { git = "https://github.com/FIZL0/ps2-oracle", tag = "v0.1.1" }
 ```
 
 Used by [opentennis](https://github.com/FIZL0/opentennis) (`hst-oracle`) and the decomp kits
