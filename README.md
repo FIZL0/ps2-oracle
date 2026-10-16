@@ -44,13 +44,9 @@ Never patch a vendored copy.
 
 ## License
 
-Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT), at your option.
+[MIT](LICENSE).
 
 In plain terms: anyone may use, copy, modify and redistribute this crate for any purpose, commercial or
 closed-source, without asking or paying. Keep the copyright and license notice when you ship the source or a
-modified copy (Apache also asks you to mark files you changed). Depending on it doesn't make your code open
-source. Apache adds a patent grant from contributors, and it ends for anyone who sues claiming the code infringes
-their patent. It's provided as-is, with no warranty or liability.
-
-Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in this crate, as
-defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
+modified copy. Depending on it doesn't make your code open source. It's provided as-is, with no warranty or
+liability.
