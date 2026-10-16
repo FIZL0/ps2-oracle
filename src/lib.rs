@@ -45,9 +45,10 @@
 //! * **Timing and frame flow** — how many frames a state lasts, what order subsystems update in, what a
 //!   function returns on the second call because something else moved in between.
 //! * **DMA** — transfers complete instantly or not at all; a function that waits on one will spin until
-//!   the instruction budget runs out. Hook it.
-//! * **VU1, and VU0 in micro mode** — only VU0's macro-mode instructions (the ones the EE issues inline)
-//!   are executed. An uploaded micro program is not run.
+//!   the instruction budget runs out. Hook it. The one exception is VIF0: [`Ee::vif0_dma`] replays a DMA
+//!   chain of VIF codes, which is how a game uploads its VU0 micro programs at boot.
+//! * **VU1** — nothing of it. VU0 in micro mode *is* run ([`Ee::vu0_run`], started by `vcallms`), with the
+//!   pipeline timing a program's results can depend on; see [`vu0`] for what that model leaves out.
 //! * **The GS** — nothing is drawn, no register has an effect, and no amount of calling will tell you what
 //!   a frame looked like.
 //! * **The IOP, the SPU, the BIOS and the kernel** — no syscalls, no threads, no files, no sound, no pad.
@@ -87,11 +88,14 @@
 //!   `madd.s`, …), `rsqrt.s`, `max.s`/`min.s`, the compares and `bc1t`/`bc1f`, `cvt.w.s`/`cvt.s.w`.
 //! * VU0 macro mode through [`ps2_float::vu`]: the lane-masked and broadcast add/sub/mul/madd/msub,
 //!   the `Q` unit (`vdiv`, `vsqrt`, `vrsqrt`), `vopmula`/`vopmsub`, `vmove`/`vmr32`, `qmfc2`/`qmtc2`,
-//!   `lqc2`/`sqc2`.
+//!   `lqc2`/`sqc2`, `cfc2`/`ctc2`.
+//! * VU0 micro mode ([`vu0`]): `vcallms`/`vcallmsr` run a program from VU0's micro memory to its end bit —
+//!   the FMAC and divider ops, loads and stores, integer ops and branches, flag reads — with FMAC stalls,
+//!   the `Q` latency and the flag latency modelled as the reference emulator does.
 //! * The MMI instructions that turn up in ordinary compiled code: `pcpyld`/`pcpyud`, `pand`/`por`/
 //!   `pxor`/`pnor`, and the `*1` multiplier moves.
 //!
-//! Everything else — COP0, micro-mode VU0, the cache instructions' effects, syscalls — panics by name.
+//! Everything else — COP0, VU1, the cache instructions' effects, syscalls — panics by name.
 //! Teaching it one more instruction is a dozen lines in `src/ee.rs`.
 //!
 //! # Getting state in
@@ -111,6 +115,8 @@
 
 pub mod disc;
 pub mod ee;
+pub mod vif;
+pub mod vu0;
 
 pub use disc::Disc;
 pub use ee::{DONE, Ee, Hook};

@@ -1,6 +1,7 @@
 //! The interpreter: an R5900 (PS2 Emotion Engine) core that runs one function and stops.
 //!
-//! It is not an emulator. There is no DMA, no GS, no interrupt, no timer, no VU1, no IOP and no clock:
+//! It is not an emulator. There is no DMA (beyond replaying a VIF0 upload chain), no GS, no interrupt, no timer, no
+//! VU1, no IOP and no clock:
 //! just registers, RAM and the instruction set, enough to call a leaf-ish function and read its answer.
 //! That is a deliberate trade — it makes a call cost microseconds instead of a frame, so a test can make
 //! ten thousand of them, which is the difference between "my port looks right" and "my port is right".
@@ -20,6 +21,14 @@ const SPR: usize = 0x4000;
 
 /// A Rust function standing in for one of the game's: see [`Ee::hooks`].
 pub type Hook = Box<dyn FnMut(&mut Ee)>;
+
+/// Where an address lands: see [`Ee::loc`].
+enum Mem {
+    Ram,
+    Spr,
+    Micro0,
+    Data0,
+}
 
 /// One R5900 core with its memory.
 pub struct Ee {
@@ -41,6 +50,22 @@ pub struct Ee {
     /// VU0's accumulator and its `Q` register (`vdiv`, `vsqrt`, `vrsqrt` land in `Q`).
     pub vacc: [f32; 4],
     pub q: f32,
+    /// VU0's integer registers (`vi0` reads as zero), its `I` register and its flags: the MAC flags
+    /// (`Z`/`S`/`U`/`O` per lane), the status flags (sticky bits included) and the clipping history. Only
+    /// micro mode ([`Ee::vu0_run`]) reads and writes them; macro-mode arithmetic leaves the flags alone.
+    pub vi: [u16; 16],
+    pub i: f32,
+    pub mac: u32,
+    pub status: u32,
+    pub clip: u32,
+    /// VU0's 4 KB of micro (program) memory and 4 KB of data memory, which the EE also sees at
+    /// `0x11000000` and `0x11004000`. A game fills the micro memory with a VIF0 `MPG` ([`Ee::vif0_dma`]).
+    pub vu0_micro: Vec<u8>,
+    pub vu0_data: Vec<u8>,
+    /// VU0 cycles the last micro program took, stalls included.
+    pub vu0_cycles: u64,
+    /// Where `vcallmsr` starts a micro program (VU0 control register 27), in 8-byte units.
+    pub cmsar0: u32,
     pub pc: u32,
     npc: u32,
     /// EE RAM (32 MB on a retail console; 128 MB on a development unit).
@@ -86,6 +111,15 @@ impl Ee {
             vf: std::array::from_fn(|k| if k == 0 { [0.0, 0.0, 0.0, 1.0] } else { [0.0; 4] }),
             vacc: [0.0; 4],
             q: 0.0,
+            vi: [0; 16],
+            i: 0.0,
+            mac: 0,
+            status: 0,
+            clip: 0,
+            vu0_micro: vec![0; crate::vu0::MEM],
+            vu0_data: vec![0; crate::vu0::MEM],
+            vu0_cycles: 0,
+            cmsar0: 0,
             pc: 0,
             npc: 0,
             ram,
@@ -176,13 +210,18 @@ impl Ee {
         self.fpr[i] = v.to_bits();
     }
 
-    /// (scratchpad?, offset) for a virtual address. Everything the EE's two cached mappings cover lands
-    /// in RAM; a dangling pointer panics here rather than reading nonsense.
-    fn loc(&self, a: u32) -> (bool, usize) {
+    /// Which memory a virtual address is in, and the offset. Everything the EE's two cached mappings
+    /// cover lands in RAM; a dangling pointer panics here rather than reading nonsense.
+    fn loc(&self, a: u32) -> (Mem, usize) {
+        let vu = crate::vu0::MEM as u32;
         if a >> 28 == 7 {
-            (true, (a & (SPR as u32 - 1)) as usize)
+            (Mem::Spr, (a & (SPR as u32 - 1)) as usize)
         } else if (a & 0x0fff_ffff) < self.ram.len() as u32 && a & 0x1000_0000 == 0 {
-            (false, (a & 0x0fff_ffff) as usize)
+            (Mem::Ram, (a & 0x0fff_ffff) as usize)
+        } else if a.wrapping_sub(0x1100_0000) < vu {
+            (Mem::Micro0, (a - 0x1100_0000) as usize)
+        } else if a.wrapping_sub(0x1100_4000) < vu {
+            (Mem::Data0, (a - 0x1100_4000) as usize)
         } else {
             panic!("access to {a:#010x} (pc {:#08x}) is not RAM or scratchpad. A pointer argument is \
                     probably wrong, or the function needs state a RAM dump would have.",
@@ -191,14 +230,24 @@ impl Ee {
     }
     /// `n` bytes at `a`, little-endian.
     pub fn read(&self, a: u32, n: usize) -> u128 {
-        let (spr, o) = self.loc(a);
-        let m = if spr { &self.spr } else { &self.ram };
+        let (m, o) = self.loc(a);
+        let m = match m {
+            Mem::Ram => &self.ram,
+            Mem::Spr => &self.spr,
+            Mem::Micro0 => &self.vu0_micro,
+            Mem::Data0 => &self.vu0_data,
+        };
         (0..n).fold(0u128, |v, k| v | (m[o + k] as u128) << (8 * k))
     }
     /// Write `n` bytes at `a`, little-endian, and remember that they changed.
     pub fn write(&mut self, a: u32, n: usize, v: u128) {
-        let (spr, o) = self.loc(a);
-        let m = if spr { &mut self.spr } else { &mut self.ram };
+        let (m, o) = self.loc(a);
+        let m = match m {
+            Mem::Ram => &mut self.ram,
+            Mem::Spr => &mut self.spr,
+            Mem::Micro0 => &mut self.vu0_micro,
+            Mem::Data0 => &mut self.vu0_data,
+        };
         for k in 0..n {
             m[o + k] = (v >> (8 * k)) as u8;
         }
@@ -497,12 +546,42 @@ impl Ee {
     }
 
     /// COP2: VU0 in macro mode — the vector instructions the EE issues inline, through
-    /// [`ps2_float::vu`]. VU0 *micro* mode (a program uploaded and started with `vcallms`) is not here:
-    /// hook functions that use it.
+    /// [`ps2_float::vu`] — and the doors into micro mode: `vcallms`/`vcallmsr` run a program in VU0's
+    /// micro memory ([`Ee::vu0_run`]) to its end before the next EE instruction, so the interlocking
+    /// moves (`qmfc2.i`, `cfc2.i`) after it see the finished results, as they would after waiting.
     fn cop2(&mut self, w: u32, here: u32) {
         let (k, rt, rd) = (w >> 21 & 31, (w >> 16 & 31) as usize, (w >> 11 & 31) as usize);
         if k < 16 {
             match k {
+                2 => {
+                    // cfc2: a VU0 integer or control register, sign-extended
+                    let v = match rd {
+                        0..=15 => self.vi[rd] as u32,
+                        16 => self.status,
+                        17 => self.mac,
+                        18 => self.clip,
+                        21 => self.i.to_bits(),
+                        22 => self.q.to_bits(),
+                        27 => self.cmsar0,
+                        _ => self.unknown(w, here, "cfc2 of this VU0 control register"),
+                    };
+                    self.set(rt, sx32(v));
+                }
+                6 => {
+                    // ctc2: the status register keeps its live flags; only the sticky ones are written
+                    let v = self.r(rt) as u32;
+                    match rd {
+                        0 => {}
+                        1..=15 => self.vi[rd] = v as u16,
+                        16 => self.status = self.status & 0x3f | v & 0xfc0,
+                        17 => {}
+                        18 => self.clip = v & 0xff_ffff,
+                        21 => self.i = f32::from_bits(v),
+                        22 => self.q = f32::from_bits(v),
+                        27 => self.cmsar0 = v & 0xffff,
+                        _ => self.unknown(w, here, "ctc2 to this VU0 control register"),
+                    }
+                }
                 1 => {
                     // qmfc2: a whole vf register into a 128-bit GPR
                     let v = self.vf[rd].iter().enumerate()
@@ -543,6 +622,12 @@ impl Ee {
             0x2c => lanes(&|i| vu::sub(a[i], b[i])),
             0x2d => lanes(&|i| vu::msub(acc[i], a[i], b[i])),
             0x2e => lanes(&|i| vu::msub(acc[i], a[cy[i]], b[cz[i]])), // vopmsub
+            0x38 | 0x39 => {
+                // vcallms (the start address is in the instruction, in 8-byte units) / vcallmsr (CMSAR0)
+                let start = if fun == 0x38 { w >> 6 & 0x7fff } else { self.cmsar0 };
+                self.vu0_run(start, 1 << 20);
+                return;
+            }
             0x3c..=0x3f => {
                 // the "special" group: accumulator targets, moves, and the Q unit
                 let op = (w >> 6 & 31) << 2 | (w & 3);

@@ -9,7 +9,7 @@ source = "git+https://github.com/FIZL0/ps2-float?tag=v0.3.0#647eefb110ef56a0e4f5
 
 [[package]]
 name = "ps2-oracle"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "ps2-float",
 ]

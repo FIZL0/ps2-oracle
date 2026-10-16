@@ -17,8 +17,9 @@ assert_eq!(ee.f0().to_bits(), my_port(1.5, 2.0).to_bits());
 
 - **What it proves:** pure functions of their arguments and RAM — maths, table lookups, AI decisions, RNGs,
   decoders. Load a RAM image from a running game (`Ee::from_ram_file`) for functions that read globals.
-- **What it cannot:** timing and frame flow, DMA, VU1 and VU0 micro mode, the GS, the IOP. Record the real
-  machine for those.
+- **What it cannot:** timing and frame flow, general DMA, VU1, the GS, the IOP. Record the real machine for
+  those. VU0 micro programs do run (`vcallms`, with the pipeline timing their results depend on), uploaded by
+  replaying the game's own VIF0 DMA chain (`Ee::vif0_dma`).
 - **Floats** go through [ps2-float](https://github.com/FIZL0/ps2-float), the same model the port uses, so a
   mismatch is always a difference in logic, never in rounding.
 - **Unknown instructions panic** with the word and its address: teach it to `src/ee.rs` (with a test in

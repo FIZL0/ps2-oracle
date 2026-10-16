@@ -1,7 +1,7 @@
 [package]
 name = "ps2-oracle"
 description = "Run one of a PS2 game's own functions on chosen inputs, with no emulator: an R5900 interpreter for proving ports"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/FIZL0/ps2-oracle"
